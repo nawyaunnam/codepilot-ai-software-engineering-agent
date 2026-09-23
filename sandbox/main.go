@@ -1,0 +1,6 @@
+package main
+import("context";"encoding/json";"net/http";"os/exec";"path/filepath";"strings";"time")
+type request struct{RepositoryPath string `json:"repository_path"`;Command []string `json:"command"`;TimeoutSeconds int `json:"timeout_seconds"`}
+func run(w http.ResponseWriter,r *http.Request){var q request;if json.NewDecoder(http.MaxBytesReader(w,r.Body,64<<10)).Decode(&q)!=nil||len(q.Command)==0{http.Error(w,"invalid",400);return};root,_:=filepath.Abs("/workspace");target,_:=filepath.Abs(q.RepositoryPath);if !strings.HasPrefix(target,root+string(filepath.Separator)){http.Error(w,"path outside workspace",403);return};if q.TimeoutSeconds<1||q.TimeoutSeconds>300{q.TimeoutSeconds=120};ctx,cancel:=context.WithTimeout(r.Context(),time.Duration(q.TimeoutSeconds)*time.Second);defer cancel();cmd:=exec.CommandContext(ctx,q.Command[0],q.Command[1:]...);cmd.Dir=target;output,e:=cmd.CombinedOutput();status:="passed";if e!=nil{status="failed"};if len(output)>1<<20{output=output[:1<<20]};json.NewEncoder(w).Encode(map[string]any{"status":status,"output":string(output),"timed_out":ctx.Err()==context.DeadlineExceeded})}
+func main(){mux:=http.NewServeMux();mux.HandleFunc("/health",func(w http.ResponseWriter,_ *http.Request){w.Write([]byte(`{"status":"ok"}`))});mux.HandleFunc("/v1/runs",run);http.ListenAndServe(":8090",mux)}
+

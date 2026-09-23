@@ -1,0 +1,38 @@
+name: CI
+on: [push, pull_request]
+permissions: {contents: read}
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -e '.[dev]'
+      - run: ruff check backend
+      - run: pytest -q
+  sandbox:
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: sandbox}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: "1.23", cache: false}
+      - run: go test ./...
+      - run: go vet ./...
+  frontend:
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: frontend}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 22, cache: npm, cache-dependency-path: frontend/package-lock.json}
+      - run: npm install
+      - run: npm run build
+  containers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose config --quiet
+      - run: docker compose build api sandbox frontend

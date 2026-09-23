@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: codepilot-api}
+spec:
+  replicas: 3
+  selector: {matchLabels: {app: codepilot-api}}
+  template:
+    metadata: {labels: {app: codepilot-api}}
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/nawyaunnam/codepilot-api:latest
+          ports: [{containerPort: 8000}]
+          envFrom: [{secretRef: {name: codepilot-secrets}}]
+          readinessProbe: {httpGet: {path: /health, port: 8000}}
+          resources: {requests: {cpu: 200m, memory: 384Mi}, limits: {cpu: 2, memory: 2Gi}}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: codepilot-api}
+spec: {scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: codepilot-api}, minReplicas: 3, maxReplicas: 20, metrics: [{type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 65}}}]}

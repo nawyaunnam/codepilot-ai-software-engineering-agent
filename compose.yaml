@@ -1,0 +1,30 @@
+name: codepilot
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: {POSTGRES_USER: codepilot, POSTGRES_PASSWORD: codepilot, POSTGRES_DB: codepilot}
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U codepilot"], interval: 5s, timeout: 3s, retries: 20}
+  redis:
+    image: redis:7-alpine
+    healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 20}
+  api:
+    build: .
+    env_file: [.env]
+    volumes: ["./workspace:/workspace:ro"]
+    ports: ["8000:8000"]
+    depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}}
+  sandbox:
+    build: ./sandbox
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 1.0
+    tmpfs: ["/tmp:size=128m,noexec,nosuid"]
+    volumes: ["./workspace:/workspace:ro"]
+    ports: ["8090:8090"]
+  frontend:
+    build: ./frontend
+    ports: ["3000:3000"]
+    depends_on: [api]
