@@ -37,3 +37,39 @@ def test_unicode_and_imports_are_preserved():
     assert chunk.content == "function work() { return x; }"
     assert chunk.start_line == 3
     assert chunk.dependencies
+
+
+def test_generated_proposal_is_a_diff_without_writing(tmp_path, monkeypatch):
+    from codepilot import agent
+    from codepilot.models import Repository
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    source = tmp_path / "auth.py"
+    source.write_text("def authenticate(): return False\n")
+    monkeypatch.setattr(agent.settings, "llm_api_key", "test-only")
+    monkeypatch.setattr(
+        agent,
+        "generate",
+        lambda *args: '{"files":[{"path":"auth.py","content":"def authenticate(): return True\\n"}]}',
+    )
+    with Session(engine) as db:
+        db.add(Repository(id=1, name="fixture", root_path=str(tmp_path), status="ready"))
+        db.add(
+            CodeChunk(
+                repository_id=1,
+                path="auth.py",
+                language="python",
+                symbol="authenticate",
+                kind="function",
+                start_line=1,
+                end_line=1,
+                content=source.read_text(),
+                search_text="authenticate",
+            )
+        )
+        db.commit()
+        result = agent.propose(db, 1, "authenticate")
+        assert "+def authenticate(): return True" in result["diff"]
+        assert source.read_text() == "def authenticate(): return False\n"
+        assert result["tests"] == "not-run"
