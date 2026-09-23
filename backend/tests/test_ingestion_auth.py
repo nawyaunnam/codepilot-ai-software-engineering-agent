@@ -1,6 +1,10 @@
+import base64
 import io
+import json
 import zipfile
+from pathlib import Path
 
+import httpx
 import pytest
 from codepilot import auth, main
 from codepilot.config import settings
@@ -99,3 +103,61 @@ def test_login_rate_limit(client):
     for _ in range(5):
         assert client.post("/auth/login", json={"username": "admin", "password": "bad"}).status_code == 401
     assert client.post("/auth/login", json={"username": "admin", "password": "bad"}).status_code == 429
+
+
+def test_proposal_tests_baseline_and_patch(client, monkeypatch):
+    from codepilot import patch_testing
+
+    sign_in(client)
+    original = "def add(a, b):\n    return a - b\n"
+    fixed = "def add(a, b):\n    return a + b\n"
+    imported = client.post("/api/repositories/upload", content=archive({"maths.py": original})).json()
+    monkeypatch.setattr(
+        main,
+        "propose",
+        lambda *args: {
+            "diff": "proposed diff",
+            "citations": [],
+            "changes": [{"path": "maths.py", "content": fixed}],
+        },
+    )
+    monkeypatch.setattr(settings, "sandbox_token", "test-broker-token")
+    snapshots = []
+
+    def broker(request):
+        assert request.headers["Authorization"] == "Bearer test-broker-token"
+        payload = json.loads(request.content)
+        assert payload["command"] == ["python3", "-m", "pytest", "-q"]
+        assert payload["timeout_seconds"] == 30
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(payload["archive"]))) as z:
+            snapshots.append(z.read("maths.py").decode())
+        return httpx.Response(200, json={"status": "failed" if len(snapshots) == 1 else "passed"})
+
+    real_client = httpx.Client
+    monkeypatch.setattr(
+        patch_testing.httpx, "Client", lambda **kw: real_client(transport=httpx.MockTransport(broker), **kw)
+    )
+    response = client.post(
+        f"/api/repositories/{imported['id']}/propose",
+        json={"question": "Fix addition", "timeout_seconds": 30},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["baseline_tests"]["status"] == "failed"
+    assert response.json()["tests"]["status"] == "passed"
+    assert "changes" not in response.json()
+    assert snapshots == [original, fixed]
+    assert next(Path(settings.workspace_root).rglob("maths.py")).read_text() == original
+
+
+def test_proposal_broker_failure_is_not_success(client, monkeypatch):
+    sign_in(client)
+    imported = client.post("/api/repositories/upload", content=archive({"a.py": "x = 1"})).json()
+    monkeypatch.setattr(main, "propose", lambda *args: {"diff": "", "changes": []})
+
+    def unavailable(*args):
+        raise httpx.ConnectError("broker offline")
+
+    monkeypatch.setattr(main, "run_tests", unavailable)
+    response = client.post(f"/api/repositories/{imported['id']}/propose", json={"question": "Add tests"})
+    assert response.status_code == 503
+    assert "no patch applied or tests claimed" in response.json()["detail"]
