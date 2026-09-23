@@ -2,6 +2,7 @@ package main
 
 import (
  "archive/zip"
+ "archive/tar"
  "bytes"
  "context"
  "crypto/subtle"
@@ -43,12 +44,19 @@ func execute(ctx context.Context,root string,command []string)(map[string]any,er
  if len(command)==0||len(command)>20{return nil,errors.New("command required")}
  image:=os.Getenv("TEST_IMAGE");if image==""{image="codepilot-test-runtime:local"}
  // Only this broker has the Docker socket. Child containers never inherit mounts or credentials.
- args:=[]string{"create","--pull=never","--network=none","--read-only","--cap-drop=ALL","--security-opt=no-new-privileges","--pids-limit=128","--memory=512m","--cpus=1","--user=65534:65534","--tmpfs=/tmp:rw,nosuid,size=256m,mode=1777",image,"sh","-c",`cp -R /source /tmp/work && cd /tmp/work && exec "$@"`,"runner"}
+ args:=[]string{"create","-i","--pull=never","--network=none","--read-only","--cap-drop=ALL","--security-opt=no-new-privileges","--pids-limit=128","--memory=512m","--cpus=1","--user=65534:65534","--tmpfs=/tmp:rw,nosuid,size=256m,mode=1777",image,"sh","-c",`mkdir /tmp/work && tar -xf - -C /tmp/work && cd /tmp/work && exec "$@"`,"runner"}
  args=append(args,command...)
  out,err:=docker(ctx,args...);if err!=nil{return nil,fmt.Errorf("container creation failed: %s",out)}
  id:=strings.TrimSpace(string(out));defer cleanup(id)
- if _,err=docker(ctx,"cp",root+"/.",id+":/source");err!=nil{return nil,errors.New("snapshot copy failed")}
- output,startErr:=docker(ctx,"start","-a",id)
+ var input bytes.Buffer
+ tw:=tar.NewWriter(&input)
+ err=filepath.Walk(root,func(path string,info os.FileInfo,walkErr error)error{
+  if walkErr!=nil{return walkErr};if info.IsDir(){return nil};rel,e:=filepath.Rel(root,path);if e!=nil{return e}
+  content,e:=os.ReadFile(path);if e!=nil{return e}
+  if e=tw.WriteHeader(&tar.Header{Name:filepath.ToSlash(rel),Mode:0644,Size:int64(len(content))});e!=nil{return e};_,e=tw.Write(content);return e
+ });if err!=nil{return nil,err};if err=tw.Close();err!=nil{return nil,err}
+ cmd:=exec.CommandContext(ctx,"docker","start","-a","-i",id);cmd.Stdin=&input;cmd.WaitDelay=time.Second
+ captured:=&capped{};cmd.Stdout=captured;cmd.Stderr=captured;startErr:=cmd.Run();output:=captured.data
  if ctx.Err()!=nil{return map[string]any{"status":"timed_out","output":string(output),"timed_out":true},nil}
  inspected,err:=docker(ctx,"inspect","--format={{.State.ExitCode}}",id);if err!=nil{return nil,errors.New("container status unavailable")}
  status:="passed";if startErr!=nil||strings.TrimSpace(string(inspected))!="0"{status="failed"}
