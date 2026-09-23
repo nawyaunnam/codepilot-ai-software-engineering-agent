@@ -11,7 +11,7 @@ services:
     build: .
     env_file: [.env]
     volumes: ["./workspace:/workspace:ro"]
-    ports: ["8000:8000"]
+    ports: ["127.0.0.1:8000:8000"]
     depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}}
   sandbox:
     build: ./sandbox
@@ -23,8 +23,8 @@ services:
     cpus: 1.0
     tmpfs: ["/tmp:size=128m,noexec,nosuid"]
     volumes: ["./workspace:/workspace:ro"]
-    ports: ["8090:8090"]
+    ports: ["127.0.0.1:8090:8090"]
   frontend:
     build: ./frontend
-    ports: ["3000:3000"]
+    ports: ["127.0.0.1:3000:3000"]
     depends_on: [api]
