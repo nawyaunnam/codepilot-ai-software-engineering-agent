@@ -53,3 +53,10 @@ SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
 def init_db():
     Base.metadata.create_all(engine)
+
+
+class CodeEmbedding(Base):
+    __tablename__ = "code_embeddings"
+    chunk_id: Mapped[int] = mapped_column(ForeignKey("code_chunks.id"), primary_key=True)
+    model: Mapped[str] = mapped_column(String(200), index=True)
+    vector: Mapped[list] = mapped_column(JSON)

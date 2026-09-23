@@ -116,4 +116,10 @@ def propose(session, repo_id, request):
                 tofile=f"b/{name}",
             )
         )
-    return {"diff": "".join(diff), "citations": citations, "status": "not-applied", "tests": "not-run"}
+    return {
+        "diff": "".join(diff),
+        "citations": citations,
+        "status": "not-applied",
+        "tests": "not-run",
+        "changes": changes,
+    }

@@ -1,5 +1,7 @@
 package main
-import("testing";"net/http/httptest";"strings")
-func TestOutputBound(t *testing.T){b:=&capped{};n,e:=b.Write([]byte(strings.Repeat("x",2<<20)));if e!=nil||n!=2<<20||len(b.data)!=1<<20 {t.Fatal("output not bounded")}}
+import("testing";"net/http/httptest";"strings";"archive/zip";"bytes";"context";"os";"path/filepath";"time")
+func TestOutputBound(t *testing.T){b:=&capped{};n,e:=b.Write([]byte(strings.Repeat("x",2<<20)));if e!=nil||n!=2<<20||len(b.data)!=1<<20{t.Fatal("output not bounded")}}
 func TestRejectGet(t *testing.T){w:=httptest.NewRecorder();run(w,httptest.NewRequest("GET","/v1/runs",nil));if w.Code!=405{t.Fatal(w.Code)}}
-func TestRejectOutsideWorkspace(t *testing.T){w:=httptest.NewRecorder();run(w,httptest.NewRequest("POST","/v1/runs",strings.NewReader(`{"repository_path":"/etc","command":["true"]}`)));if w.Code!=403{t.Fatal(w.Code)}}
+func TestRejectUnauthenticated(t *testing.T){w:=httptest.NewRecorder();run(w,httptest.NewRequest("POST","/v1/runs",strings.NewReader(`{}`)));if w.Code!=401{t.Fatal(w.Code)}}
+func TestTraversal(t *testing.T){var data bytes.Buffer;z:=zip.NewWriter(&data);f,_:=z.Create("../escape");f.Write([]byte("x"));z.Close();if unpack(data.Bytes(),t.TempDir())==nil{t.Fatal("accepted traversal")}}
+func TestRealContainer(t *testing.T){if os.Getenv("RUN_DOCKER_TESTS")!="1"{t.Skip("Docker integration opted out")};root:=t.TempDir();os.Chmod(root,0755);os.WriteFile(filepath.Join(root,"test_math.py"),[]byte("def test_math(): assert 2 + 2 == 4\n"),0644);ctx,cancel:=context.WithTimeout(context.Background(),45*time.Second);defer cancel();result,err:=execute(ctx,root,[]string{"python3","-m","pytest","-q"});if err!=nil||result["status"]!="passed"{t.Fatalf("%v %v",result,err)};result,err=execute(ctx,root,[]string{"python3","-c","import socket; socket.create_connection(('1.1.1.1',443),timeout=1)"});if err!=nil||result["status"]!="failed"{t.Fatalf("network not isolated: %v %v",result,err)}}

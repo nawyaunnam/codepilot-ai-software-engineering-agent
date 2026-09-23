@@ -20,6 +20,8 @@ jobs:
         with: {go-version: "1.23", cache: false}
       - run: go test ./...
       - run: go vet ./...
+      - run: docker build -f Runtime.Dockerfile -t codepilot-test-runtime:local .
+      - run: RUN_DOCKER_TESTS=1 go test -v ./...
   frontend:
     runs-on: ubuntu-latest
     defaults: {run: {working-directory: frontend}}
@@ -34,5 +36,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cp .env.example .env
+      - run: python -c "from pathlib import Path; p=Path('.env'); p.write_text(p.read_text().replace('SANDBOX_TOKEN=\n', 'SANDBOX_TOKEN=ci-only-sandbox-token-32-characters-long\n'))"
       - run: docker compose config --quiet
-      - run: docker compose build api sandbox frontend
+      - run: docker compose build api sandbox frontend test-runtime
