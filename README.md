@@ -2,6 +2,12 @@
 
 A repository-aware engineering assistant with AST indexing, hybrid code search, cited explanations, feature planning, and automatically tested change proposals.
 
+## Follow one question through the code
+
+Import a public repository and ask where authentication is implemented. The [indexer](backend/codepilot/indexer.py) extracts symbols and source ranges; [retrieval](backend/codepilot/retrieval.py) combines lexical and embedding rankings. Returned evidence points back to the repository files.
+
+For a proposed change, the [Go broker](sandbox/main.go) runs baseline and patched snapshots separately, with networking disabled and bounded resources. That separates an existing test failure from one introduced by a proposal. Live explanations and patch generation require an API key; keyless mode returns source evidence.
+
 ## Start locally
 
 ```bash
